@@ -45,21 +45,21 @@ async function main() {
   //    - Try direct market (e.g. USDT/KRW)
   //    - If not found, try cross via base asset (e.g. BTC)
   const usdtKrw = await fx.rate("USDT", "KRW");
-  console.log("USDT/KRW =", usdtKrw.price);
+  console.log("USDT/KRW =", usdtKrw);
 
   // 2) Direct crypto market only (no cross):
   const btcUsdt = await fx.directRate("BTC", "USDT");
-  console.log("BTC/USDT =", btcUsdt?.price);
+  console.log("BTC/USDT =", btcUsdt);
 
   // 3) Cross rate via base asset (e.g. BTC):
   //    USDT/KRW = (BTC/KRW) / (BTC/USDT)
   const crossUsdtKrw = await fx.crossRate("USDT", "KRW");
-  console.log("USDT/KRW (cross via BTC) =", crossUsdtKrw.price);
+  console.log("USDT/KRW (cross via BTC) =", crossUsdtKrw);
 
   // 4) Legal FX (fiat↔fiat)
   const usdJpy = await fx.fiatRate("USD", "JPY");
   if (usdJpy) {
-    console.log("USD/JPY =", usdJpy.price);
+    console.log("USD/JPY =", usdJpy);
   } else {
     console.log("USD/JPY not available from fiat FX provider");
   }
