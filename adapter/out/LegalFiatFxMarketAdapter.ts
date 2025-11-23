@@ -105,13 +105,21 @@ export const stockplusFiatFxTransform: FiatFxTransform = (
 
   for (const asset of assets) {
     if (!asset || typeof asset !== 'object') continue;
+
     const code = (asset as any).currencyCode as CurrencyCode | undefined;
     const basePrice = (asset as any).basePrice as number | undefined;
+    const currencyUnit = (asset as any).currencyUnit as number | undefined;
 
-    if (code && typeof basePrice === 'number') {
-      // base = 'KRW', quotes[code] = KRW per 1 code
-      QUOTES[code] = basePrice;
-    }
+    if (!code || typeof basePrice !== 'number') continue;
+
+    // Stockplus: basePrice is "KRW per `currencyUnit` of code".
+    // Fusanex wants: "KRW per 1 code".
+    const unit =
+      typeof currencyUnit === 'number' && currencyUnit > 0
+        ? currencyUnit
+        : 1;
+
+    QUOTES[code] = basePrice / unit;
   }
 
   return { base: BASE, quotes: QUOTES };
