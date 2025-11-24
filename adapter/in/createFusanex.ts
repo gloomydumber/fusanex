@@ -4,10 +4,7 @@ import type { BaseAsset } from '../../domain/base-asset';
 import type { MarketPort } from '../../application/port/out/MarketPort';
 
 import { UpbitKRWMarketAdaptor } from '../out/UpbitKRWMarketAdapter';
-import {
-  BinanceUSDLikeMarketAdapter,
-  type BinanceUSDLikeOptions,
-} from '../out/BinanceUSDLikeMarketAdapter';
+import { BinanceUSDLikeMarketAdapter } from '../out/BinanceUSDLikeMarketAdapter';
 
 import type {
   ProviderMap,
@@ -52,7 +49,6 @@ export interface FusanexConfig {
 
   upbitApiUrl?: string;
   binanceApiUrl?: string;
-  binanceUsdLikeOptions?: BinanceUSDLikeOptions;
 
   providers?: ProviderMap;
 
@@ -106,9 +102,7 @@ function buildCryptoMarkets(config: FusanexConfig): MarketPort[] {
           config.binanceApiUrl ?? DEFAULT_BINANCE_TICKER_ENDPOINT;
         markets.push(
           new BinanceUSDLikeMarketAdapter(
-            BINANCE_API_URL,
-            config.binanceUsdLikeOptions,
-          ),
+            BINANCE_API_URL),
         );
         break;
       }

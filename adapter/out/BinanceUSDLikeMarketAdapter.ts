@@ -1,18 +1,8 @@
 import type { MarketPort } from '../../application/port/out/MarketPort';
 import type { BaseAsset } from '../../domain/base-asset';
-import { isBaseAsset } from '../../domain/base-asset';
 import type { CurrencyCode } from '../../domain/currency';
 import type { ExchangeRate } from '../../domain/exchange-rate';
-
-export interface BinanceUSDLikeOptions {
-  /**
-   * Stable / USD-like quote asset symbol.
-   * Examples: 'USDT', 'USDC', 'FDUSD', ...
-   *
-   * Default: 'USDT'
-   */
-  stable?: string;
-}
+import { isStableCurrencyCode } from '../../domain/currency';
 
 /**
  * BinanceUSDLikeMarketAdapter
@@ -33,28 +23,22 @@ export interface BinanceUSDLikeOptions {
  *   getPair('ETH', 'USDT')  -> ETHUSDT
  */
 export class BinanceUSDLikeMarketAdapter implements MarketPort {
-  private readonly STABLE: string;
-
   constructor(
-    private readonly apiUrl: string, // e.g. 'https://api.binance.com/api/v3/ticker/price'
-    options: BinanceUSDLikeOptions = {},
-  ) {
-    this.STABLE = options.stable ?? 'USDT';
-  }
+    private readonly apiUrl: string) { } // e.g. 'https://api.binance.com/api/v3/ticker/price'
 
   async getPair(
     from: CurrencyCode | BaseAsset,
     to: CurrencyCode | BaseAsset,
   ): Promise<ExchangeRate | null> {
     // This adapter only supports BASE/STABLE (default: BASE/USDT).
-    if (to !== this.STABLE) return null;
+    if (!isStableCurrencyCode(to)) return null;
 
     // TODO: Check this step actually needed or not
     // For cross-rate, we only consider real BaseAssets here (BTC, ETH, ...).
     // if (!isBaseAsset(from)) return null;
 
     const BASE = from as BaseAsset;
-    const SYMBOL = `${BASE}${this.STABLE}`; // e.g. BTCUSDT, ETHUSDT
+    const SYMBOL = `${BASE}${to}`; // e.g. BTCUSDT, ETHUSDT
 
     const res = await fetch(`${this.apiUrl}?symbol=${SYMBOL}`);
     const data = await res.json();
@@ -71,7 +55,7 @@ export class BinanceUSDLikeMarketAdapter implements MarketPort {
 
     return {
       base: BASE,
-      quote: this.STABLE,
+      quote: to,
       price,
     };
   }
