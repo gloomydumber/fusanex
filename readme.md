@@ -4,13 +4,14 @@
 
 It lets you:
 
-- Fetch **crypto/fiat** prices from spot markets (Upbit KRW, Binance USD-like).
+- Fetch **crypto/fiat** prices from spot markets (e.g. Upbit KRW, Binance USD-like).
 - Compute **cross rates** via a base asset (e.g. USDT/KRW from BTC/KRW and BTC/USDT).
 - Query **legal FX rates** (fiat↔fiat) via a pluggable HTTP endpoint.
+- Combine **crypto markets + fiat FX** to resolve “any to any” routes where possible.
 
 Internally, it follows a hexagonal architecture:
 
-- **Domain**: assets, currencies, exchange rates, cross rate logic.
+- **Domain**: assets, currencies, exchange rates, cross-rate logic.
 - **Application**: `FusanexService` implementing `FusanexPort`.
 - **Adapters**:
   - Outbound: crypto markets (Upbit KRW, Binance USD-like) and legal FX.
@@ -38,31 +39,28 @@ import fusanex from "fusanex";
 async function main() {
   // Create a client with default configuration.
   // - Crypto: Upbit (KRW spot) + Binance (USD-like stable, e.g. USDT)
-  // - Fiat FX: Stockplus (if you wired it as default in the factory)
+  // - Fiat FX: your configured legal FX provider (or default, if wired)
   const fx = fusanex();
 
-  // 1) Smart crypto rate:
-  //    - Try direct market (e.g. USDT/KRW)
-  //    - If not found, try cross via base asset (e.g. BTC)
+  // 1) Smart "universal" rate:
+  //    - Uses crypto markets + fiat FX + hybrid routing under the hood.
   const usdtKrw = await fx.rate("USDT", "KRW");
-  console.log("USDT/KRW =", usdtKrw);
+  console.log("USDT/KRW (universal) =", usdtKrw);
 
-  // 2) Direct crypto market only (no cross):
-  const btcUsdt = await fx.directRate("BTC", "USDT");
-  console.log("BTC/USDT =", btcUsdt);
+  // 2) Crypto-only smart rate:
+  //    - Tries direct crypto markets, then cross via baseAsset.
+  //    - Does NOT use fiat FX at all.
+  const btcEth = await fx.cryptoRate("BTC", "ETH");
+  console.log("BTC/ETH (crypto-only) =", btcEth);
 
-  // 3) Cross rate via base asset (e.g. BTC):
-  //    USDT/KRW = (BTC/KRW) / (BTC/USDT)
-  const crossUsdtKrw = await fx.crossRate("USDT", "KRW");
-  console.log("USDT/KRW (cross via BTC) =", crossUsdtKrw);
+  // 3) Direct crypto spot market only:
+  //    - No cross, no fiat FX, no routing.
+  const btcKrwDirect = await fx.directRate("BTC", "KRW");
+  console.log("BTC/KRW (direct spot) =", btcKrwDirect);
 
-  // 4) Legal FX (fiat↔fiat)
-  const usdJpy = await fx.fiatRate("USD", "JPY");
-  if (usdJpy) {
-    console.log("USD/JPY =", usdJpy);
-  } else {
-    console.log("USD/JPY not available from fiat FX provider");
-  }
+  // 4) Legal FX (fiat↔fiat) only:
+  const usdKrwFiat = await fx.fiatRate("USD", "KRW");
+  console.log("USD/KRW (fiat FX) =", usdKrwFiat);
 }
 
 main().catch(console.error);
@@ -75,42 +73,39 @@ The main object you get from `fusanex()` implements FusanexPort:
 ```ts
 interface FusanexPort {
   /**
-   * Smart crypto rate:
-   * 1. Try direct crypto market.
-   * 2. If not found, try cross via base asset.
-   * 3. Throw if no route is available.
+   * Universal router (crypto + fiat).
    */
   rate(
     from: CurrencyCode | BaseAsset,
     to: CurrencyCode | BaseAsset
-  ): Promise<ExchangeRate>;
+  ): Promise<number | null>;
 
   /**
-   * Direct crypto market only.
-   * Returns null if no direct market exists.
+   * Crypto-only smart router.
+   * - Uses cryptoMarkets only.
+   * - Tries direct markets first, then cross via baseAsset.
+   * - Does NOT use fiat FX.
+   */
+  cryptoRate(
+    from: CurrencyCode | BaseAsset,
+    to: CurrencyCode | BaseAsset
+  ): Promise<number | null>;
+
+  /**
+   * Direct crypto rate from spot markets only.
+   * - No cross via baseAsset.
+   * - No fiat FX.
    */
   directRate(
     from: CurrencyCode | BaseAsset,
     to: CurrencyCode | BaseAsset
-  ): Promise<ExchangeRate | null>;
+  ): Promise<number | null>;
 
   /**
-   * Cross crypto rate via base asset only.
-   * Throws if any leg is missing.
+   * Legal FX (fiat↔fiat) via configured FX provider.
+   * - Uses fiatMarkets only.
    */
-  crossRate(
-    from: CurrencyCode | BaseAsset,
-    to: CurrencyCode | BaseAsset
-  ): Promise<ExchangeRate>;
-
-  /**
-   * Legal FX (fiat↔fiat), via configured fiat FX provider.
-   * Returns null if the provider cannot price the pair.
-   */
-  fiatRate(
-    from: FiatCurrencyCode,
-    to: FiatCurrencyCode
-  ): Promise<ExchangeRate | null>;
+  fiatRate(from: CurrencyCode, to: CurrencyCode): Promise<number | null>;
 }
 ```
 
@@ -136,40 +131,47 @@ interface ExchangeRate {
 You can customize the behavior via `FusanexConfig`, passed to `fusanex(config)`.
 
 ```ts
-interface FusanexConfig {
-  /** Base asset used for crypto cross rates. Default: 'BTC'. */
-  baseAsset?: BaseAsset;
+import fusanex from "fusanex";
 
-  /** Upbit API endpoint (root URL). Default: 'https://api.upbit.com/v1'. */
-  upbitApiUrl?: string;
-
-  /** Binance API endpoint (root URL). Default: 'https://api.binance.com/api/v3'. */
-  binanceApiUrl?: string;
-
-  /** Binance USD-like market options (e.g. which stable to use). */
-  binanceUsdLikeOptions?: {
-    /** Stablecoin symbol used as quote on Binance. Default: 'USDT'. */
-    stable?: StableCurrencyCode;
-  };
+const fx = fusanex({
+  /**
+   * Base asset for crypto cross routing.
+   * Example: "BTC" or "ETH".
+   */
+  baseAsset: "BTC",
 
   /**
-   * Which provider to use per fiat currency for crypto markets.
-   * Example:
-   * { KRW: 'Upbit', USD: 'Binance' }
+   * Crypto providers configuration.
+   * Example: which provider to use for KRW and USD-like markets.
    */
-  providers?: ProviderMap;
+  providers: {
+    KRW: "Upbit",
+    USD: "Binance",
+  },
 
   /**
-   * Optional configuration for legal FX (fiat↔fiat).
-   * If omitted (or disabled in your code), fiatRate() will use no provider.
-   * If provided, fusanex will instantiate a LegalFiatFxMarketAdapter.
+   * Optional override for exchange API endpoints.
    */
-  fiatFx?: {
-    endpoint: string; // HTTP endpoint to fetch FX table from
-    transform: FiatFxTransform; // function to normalize provider response
-    ttlMs?: number; // optional cache TTL (default around 60s)
-  };
-}
+  binanceApiUrl: "https://api.binance.com",
+  upbitApiUrl: "https://api.upbit.com",
+
+  /**
+   * Fiat FX configuration (optional).
+   * If omitted, a default fiat FX provider may be used by the factory,
+   * depending on your internal wiring.
+   */
+  fiatFx: {
+    endpoint: "https://example.com/fiat-fx",
+    // Map raw JSON response → { [pair: string]: number }
+    transform: (raw: unknown) => {
+      // user-defined transform here
+      return {
+        "USD/KRW": 1350.12,
+        "EUR/USD": 1.07,
+      };
+    },
+  },
+});
 ```
 
 Example: custom base asset
