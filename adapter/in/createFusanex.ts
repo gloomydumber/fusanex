@@ -156,7 +156,7 @@ function buildFiatMarkets(config: FusanexConfig): MarketPort[] {
  *     baseAsset: 'BTC' by default
  *     providers: { KRW: 'Upbit', USD: 'Binance' } by default
  * - Fiat FX:
- *     if `fiatFx` is omitted: fiatRate() is disabled (always null)
+ *     if `fiatFx` is omitted: fiatRate() uses Stockplus by default
  *     if `fiatFx` is provided: LegalFiatFxMarketAdapter is configured with it
  *
  * Example (with Stockplus as convenience):
