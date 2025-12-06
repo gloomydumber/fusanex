@@ -11,13 +11,19 @@ export interface FusanexServiceConfig {
 
 /**
  * FusanexService:
- * - Crypto methods use cryptoMarkets only:
- *     - rate()       : prefers direct crypto markets, then crypto cross via baseAsset
+ *
+ * - Unified resolution (crypto + fiat):
+ *     - rate()       : tries direct crypto, then crypto cross via baseAsset,
+ *                      then fiat FX if both are fiat,
+ *                      and finally mixed crypto↔fiat multi-leg routing.
+ * 
+ * - Crypto resolution (uses cryptoMarkets only):
  *     - directRate() : only direct crypto markets
  *     - crossRate()  : only crypto cross via baseAsset
  *
- * - Fiat methods use fiatMarkets only:
+ * - Fiat resolution (uses fiatMarkets only):
  *     - fiatRate()   : only legal fiat FX provider(s), no crypto
+ *
  */
 export class FusanexService implements FusanexPort {
   constructor(
@@ -212,19 +218,19 @@ export class FusanexService implements FusanexPort {
   }
 
   /**
- * Try a "single-leg" route between two currencies:
- *
- * - If both are fiat:
- *     - Prefer fiatRate(from, to).
- *     - If fiat is not available, fall back to crypto-based methods (if any).
- *
- * - Otherwise (crypto / stable / mixed):
- *     - Try direct crypto markets, then crypto cross via baseAsset.
- *
- * Returns:
- *   number = how many `to` per 1 `from`
- *   or null if no single-leg route exists.
- */
+   * Try a "single-leg" route between two currencies:
+   *
+   * - If both are fiat:
+   *     - Prefer fiatRate(from, to).
+   *     - If fiat is not available, fall back to crypto-based methods (if any).
+   *
+   * - Otherwise (crypto / stable / mixed):
+   *     - Try direct crypto markets, then crypto cross via baseAsset.
+   *
+   * Returns:
+   *   number = how many `to` per 1 `from`
+   *   or null if no single-leg route exists.
+   */
   private async trySingleLeg(
     from: CurrencyCode,
     to: CurrencyCode,
@@ -254,14 +260,7 @@ export class FusanexService implements FusanexPort {
       return CROSS_CRYPTO;
     }
 
-    // If both are fiat and crypto could not help, try fiat again as a fallback.
-    if (FROM_IS_FIAT && TO_IS_FIAT) {
-      const FIAT_FALLBACK = await this.fiatRate(from, to);
-      if (FIAT_FALLBACK !== null) {
-        return FIAT_FALLBACK;
-      }
-    }
-
+    // No second fiatRate() call here: fiat is only tried once above.
     return null;
   }
 }
