@@ -1,8 +1,8 @@
 import type { FusanexPort } from '../port/in/FusanexPort';
 import type { MarketPort } from '../port/out/MarketPort';
 import type { BaseAsset } from '../../domain/base-asset';
-import type { CurrencyCode } from '../../domain/currency';
 import type { ExchangeRate } from '../../domain/exchange-rate';
+import { type CurrencyCode, isFiatCurrencyCode } from '../../domain/currency';
 import { computeCrossRate } from '../../domain/cross-rate';
 
 export interface FusanexServiceConfig {
@@ -77,6 +77,78 @@ export class FusanexService implements FusanexPort {
     return FIAT_PAIR.price;
   }
 
+  // --------- UNIVERSAL ROUTER ---------
+
+  /**
+   * Universal rate (smart router):
+   *
+   * Resolution order:
+   * 1. Crypto-only:
+   *    - Try rate(from, to) (direct > crypto cross via baseAsset).
+   *
+   * 2. Fiat-only:
+   *    - Try fiatRate(from, to).
+   *
+   * 3. Mixed / bridged, 2-leg routes via bridge currencies:
+   *    - For each BRIDGE in [KRW, USD, baseAsset]:
+   *        leg1 = single-leg(from, BRIDGE)
+   *        leg2 = single-leg(BRIDGE, to)
+   *      If both legs exist, return leg1 * leg2.
+   *
+   * Returns null if no route is found.
+   *
+   * The result is "how many `to` per 1 `from`".
+   */
+  async smartRate(
+    from: CurrencyCode,
+    to: CurrencyCode,
+  ): Promise<number | null> {
+    if (from === to) return 1;
+
+    // 1) Try crypto-only path first (same semantics as rate(), but swallow errors)
+    try {
+      const CRYPTO_RATE = await this.rate(from, to);
+      if (CRYPTO_RATE !== null && !Number.isNaN(CRYPTO_RATE)) {
+        return CRYPTO_RATE;
+      }
+    } catch {
+      // ignore, fallback to other strategies
+    }
+
+    // 2) Try pure fiat FX route
+    const FIAT_RATE = await this.fiatRate(from, to);
+    if (FIAT_RATE !== null) {
+      return FIAT_RATE;
+    }
+
+    // 3) Try 2-leg routes via bridge currencies.
+    //    These are "good hubs" that connect both crypto and fiat worlds.
+    const BRIDGES: CurrencyCode[] = [
+      'KRW', // primary fiat bridge (typical legal tender in your environment)
+      'USD', // secondary fiat bridge (global reserve)
+      // We also treat baseAsset as a "bridge currency" between cryptos.
+      this.config.baseAsset as unknown as CurrencyCode,
+    ];
+
+    for (const BRIDGE of BRIDGES) {
+      if (BRIDGE === from || BRIDGE === to) continue;
+
+      const LEG1 = await this.trySingleLeg(from, BRIDGE);
+      if (LEG1 === null) continue;
+
+      const LEG2 = await this.trySingleLeg(BRIDGE, to);
+      if (LEG2 === null) continue;
+
+      const COMBINED = LEG1 * LEG2;
+      if (!Number.isNaN(COMBINED)) {
+        return COMBINED;
+      }
+    }
+
+    // No route found.
+    return null;
+  }
+
   // --------- PRIVATE HELPERS ---------
 
   private async resolveCryptoPair(
@@ -137,5 +209,59 @@ export class FusanexService implements FusanexPort {
     const TO_PER_FROM = computeCrossRate(BASE_TO, BASE_FROM);
 
     return TO_PER_FROM.price;
+  }
+
+  /**
+ * Try a "single-leg" route between two currencies:
+ *
+ * - If both are fiat:
+ *     - Prefer fiatRate(from, to).
+ *     - If fiat is not available, fall back to crypto-based methods (if any).
+ *
+ * - Otherwise (crypto / stable / mixed):
+ *     - Try direct crypto markets, then crypto cross via baseAsset.
+ *
+ * Returns:
+ *   number = how many `to` per 1 `from`
+ *   or null if no single-leg route exists.
+ */
+  private async trySingleLeg(
+    from: CurrencyCode,
+    to: CurrencyCode,
+  ): Promise<number | null> {
+    if (from === to) return 1;
+
+    const FROM_IS_FIAT = isFiatCurrencyCode(from);
+    const TO_IS_FIAT = isFiatCurrencyCode(to);
+
+    // Both fiat: prefer the legal FX provider.
+    if (FROM_IS_FIAT && TO_IS_FIAT) {
+      const FIAT = await this.fiatRate(from, to);
+      if (FIAT !== null) {
+        return FIAT;
+      }
+      // Fall through to crypto-based methods if ever needed in future.
+    }
+
+    // Try crypto methods (direct, then cross).
+    const DIRECT_CRYPTO = await this.directRate(from, to);
+    if (DIRECT_CRYPTO !== null) {
+      return DIRECT_CRYPTO;
+    }
+
+    const CROSS_CRYPTO = await this.crossRate(from, to);
+    if (CROSS_CRYPTO !== null) {
+      return CROSS_CRYPTO;
+    }
+
+    // If both are fiat and crypto could not help, try fiat again as a fallback.
+    if (FROM_IS_FIAT && TO_IS_FIAT) {
+      const FIAT_FALLBACK = await this.fiatRate(from, to);
+      if (FIAT_FALLBACK !== null) {
+        return FIAT_FALLBACK;
+      }
+    }
+
+    return null;
   }
 }

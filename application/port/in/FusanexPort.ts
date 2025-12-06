@@ -34,4 +34,24 @@ export interface FusanexPort {
    * The result is "how many `to` per 1 `from`".
    */
   fiatRate(from: CurrencyCode, to: CurrencyCode): Promise<number | null>;
+
+  /**
+ * Universal rate (smart router):
+ *
+ * Resolution order:
+ * 1. Crypto world:
+ *    - Try rate(from, to)      (direct then crypto cross via baseAsset).
+ * 2. Fiat world:
+ *    - Try fiatRate(from, to)  (pure legal FX).
+ * 3. Mixed / bridged paths (2-leg routes):
+ *    - Try routes via bridge currencies (e.g. KRW, USD, baseAsset), by:
+ *        from → BRIDGE (single leg)
+ *        BRIDGE → to   (single leg)
+ *      using both crypto and fiat methods.
+ *
+ * If no route is found, returns null.
+ *
+ * The result is "how many `to` per 1 `from`".
+ */
+  smartRate(from: CurrencyCode, to: CurrencyCode): Promise<number | null>;
 }
