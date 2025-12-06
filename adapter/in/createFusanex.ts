@@ -55,8 +55,8 @@ export interface FusanexConfig {
   /**
    * Optional legal fiat FX configuration.
    *
-   * - If omitted: fiat FX is disabled, fiatRate() will return null.
-   * - If provided: a LegalFiatFxMarketAdapter will be created with this config.
+   * - If omitted: a default Stockplus fiat FX provider will be used automatically.
+   * - If provided: a LegalFiatFxMarketAdapter will be created using this configuration.
    */
   fiatFx?: FiatFxConfig;
 }
