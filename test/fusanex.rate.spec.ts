@@ -42,7 +42,7 @@ describe('FusanexService.smartRate', () => {
 
     const fx = createFusanex();
 
-    const result = await fx.smartRate('USDT', 'KRW');
+    const result = await fx.rate('USDT', 'KRW');
 
     expect(result).toBe(1300);
   });
@@ -79,7 +79,7 @@ describe('FusanexService.smartRate', () => {
       },
     };
 
-    // Call order for smartRate('USD', 'KRW'):
+    // Call order for rate('USD', 'KRW'):
     //
     // 1) rate('USD','KRW') – crypto-only:
     //    - resolveCryptoPair('USD','KRW') → UpbitKRWMarketAdaptor:
@@ -130,7 +130,7 @@ describe('FusanexService.smartRate', () => {
       },
     });
 
-    const result = await fx.smartRate('USD', 'KRW');
+    const result = await fx.rate('USD', 'KRW');
 
     // With base='KRW' and quotes.USD = 1300, we expect:
     //   1 USD = 1300 KRW
@@ -225,7 +225,7 @@ describe('FusanexService.smartRate', () => {
       },
     });
 
-    const result = await fx.smartRate('USDT', 'JPY');
+    const result = await fx.rate('USDT', 'JPY');
 
     expect(result).not.toBeNull();
 

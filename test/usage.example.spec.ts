@@ -101,9 +101,9 @@ describe('end-user usage example', () => {
     expect(direct).toBe(1300);
 
     // ---- 2) rate: smart crypto rate (picks direct USDT/KRW) ----
-    const smart = await fx.rate('USDT', 'KRW');
+    const crypto = await fx.cryptoRate('USDT', 'KRW');
     // Because a direct USDT/KRW market exists on Upbit, rate() will use it.
-    expect(smart).toBe(1300);
+    expect(crypto).toBe(1300);
 
     // ---- 3) crossRate: crypto cross via base asset (BTC) ----
     //

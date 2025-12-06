@@ -28,7 +28,7 @@ export class FusanexService implements FusanexPort {
 
   // --------- CRYPTO METHODS ---------
 
-  async rate(from: CurrencyCode, to: CurrencyCode): Promise<number> {
+  async cryptoRate(from: CurrencyCode, to: CurrencyCode): Promise<number> {
     if (from === to) return 1;
 
     const DIRECT_PAIR = await this.resolveCryptoPair(from, to);
@@ -99,7 +99,7 @@ export class FusanexService implements FusanexPort {
    *
    * The result is "how many `to` per 1 `from`".
    */
-  async smartRate(
+  async rate(
     from: CurrencyCode,
     to: CurrencyCode,
   ): Promise<number | null> {
@@ -107,7 +107,7 @@ export class FusanexService implements FusanexPort {
 
     // 1) Try crypto-only path first (same semantics as rate(), but swallow errors)
     try {
-      const CRYPTO_RATE = await this.rate(from, to);
+      const CRYPTO_RATE = await this.cryptoRate(from, to);
       if (CRYPTO_RATE !== null && !Number.isNaN(CRYPTO_RATE)) {
         return CRYPTO_RATE;
       }
