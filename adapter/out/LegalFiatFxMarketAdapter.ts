@@ -188,7 +188,7 @@ export class LegalFiatFxMarketAdapter implements MarketPort {
     from: CurrencyCode | BaseAsset,
     to: CurrencyCode | BaseAsset,
   ): Promise<ExchangeRate | null> {
-    // Only handle fiat<->fiat, ignore crypto (BaseAsset)
+    // caller must only pass fiat codes; base assets are not supported.
     if (typeof from !== 'string' || typeof to !== 'string') {
       return null;
     }
