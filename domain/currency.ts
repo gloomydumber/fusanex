@@ -1,27 +1,28 @@
-export type FiatCurrencyCode = 'USD' | 'KRW' | 'JPY' | 'EUR' | 'CNY' | 'VND';
+export type FiatCurrency = 'USD' | 'KRW' | 'JPY' | 'EUR' | 'CNY' | 'VND';
+export type StableCurrency = 'USDT' | 'USDC';
+export type CryptoCurrency = 'BTC' | 'ETH' | 'XRP' | 'BNB' | 'SOL';
 
-export type StableCurrencyCode = 'USDT' | 'USDC';
+// Unified Type
+export type CurrencyCode = FiatCurrency | StableCurrency | CryptoCurrency;
 
-export const STABLE_ASSETS: StableCurrencyCode[] = ['USDT', 'USDC'];
+// Runtime Arrays
+export const FIAT_ASSETS: FiatCurrency[] = ['USD', 'KRW', 'JPY', 'EUR', 'CNY', 'VND'];
+export const STABLE_ASSETS: StableCurrency[] = ['USDT', 'USDC'];
+export const CRYPTO_ASSETS: CryptoCurrency[] = ['BTC', 'ETH', 'XRP', 'BNB', 'SOL'];
 
-/**
- * Returns true if the given currency code is a Stable Token currency
- * (i.e. a stablecoin like USDT/USDC).
- */
-export function isStableCurrencyCode(value: string): value is StableCurrencyCode {
-  return (STABLE_ASSETS as string[]).includes(value);
+// Type Guards
+export function isFiat(code: string): code is FiatCurrency {
+  return FIAT_ASSETS.includes(code as FiatCurrency);
 }
 
-/**
- * Returns true if the given currency code is a fiat currency
- * (i.e. not a stablecoin like USDT/USDC).
- */
-export function isFiatCurrencyCode(
-  value: FiatCurrencyCode | StableCurrencyCode,
-): value is FiatCurrencyCode {
-  return !(STABLE_ASSETS as string[]).includes(value as string);
+export function isStable(code: string): code is StableCurrency {
+  return STABLE_ASSETS.includes(code as StableCurrency);
 }
 
+export function isCrypto(code: string): code is CryptoCurrency {
+  return CRYPTO_ASSETS.includes(code as CryptoCurrency);
+}
 
-export type CurrencyCode = FiatCurrencyCode | StableCurrencyCode;
-
+export function isFiatOrStable(code: string): boolean {
+  return isFiat(code) || isStable(code);
+}
