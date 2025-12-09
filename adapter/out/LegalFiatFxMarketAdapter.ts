@@ -1,7 +1,6 @@
 import type { MarketPort } from '../../application/port/out/MarketPort';
 import type { ExchangeRate } from '../../domain/exchange-rate';
 import type { CurrencyCode } from '../../domain/currency';
-import type { BaseAsset } from '../../domain/base-asset';
 import type {
   NormalizedFiatFxRates,
   FiatFxTransform,
@@ -185,8 +184,8 @@ export class LegalFiatFxMarketAdapter implements MarketPort {
   }
 
   async getPair(
-    from: CurrencyCode | BaseAsset,
-    to: CurrencyCode | BaseAsset,
+    from: CurrencyCode,
+    to: CurrencyCode,
   ): Promise<ExchangeRate | null> {
     // caller must only pass fiat codes; base assets are not supported.
     if (typeof from !== 'string' || typeof to !== 'string') {
