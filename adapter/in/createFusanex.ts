@@ -2,7 +2,7 @@ import { FusanexService } from '../../application/service/FusanexService';
 import type { FusanexPort } from '../../application/port/in/FusanexPort';
 import type { CurrencyCode } from '../../domain/currency';
 import type { MarketPort } from '../../application/port/out/MarketPort';
-import { UpbitKRWMarketAdaptor } from '../out/UpbitKRWMarketAdapter';
+import { UpbitKRWMarketAdapter } from '../out/UpbitKRWMarketAdapter';
 import { BinanceUSDLikeMarketAdapter } from '../out/BinanceUSDLikeMarketAdapter';
 import type { ProviderMap, KRWProviderId, USDProviderId } from '../../domain/providers';
 import type { FiatFxTransform } from '../../domain/fiat-fx';
@@ -46,7 +46,7 @@ function buildCryptoMarkets(config: FusanexConfig): MarketPort[] {
     switch (KRW_PROVIDER) {
       case 'Upbit': {
         const UPBIT_API_URL = config.upbitApiUrl ?? DEFAULT_UPBIT_TICKER_ENDPOINT;
-        markets.push(new UpbitKRWMarketAdaptor(UPBIT_API_URL));
+        markets.push(new UpbitKRWMarketAdapter(UPBIT_API_URL));
         break;
       }
       case 'Bithumb': {

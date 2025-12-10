@@ -6,7 +6,7 @@ import type { CurrencyCode } from '../../domain/currency';
  * UpbitKRWMarketAdaptor
  * Supports: ANY -> KRW
  */
-export class UpbitKRWMarketAdaptor implements MarketPort {
+export class UpbitKRWMarketAdapter implements MarketPort {
   constructor(private readonly apiUrl: string) { }
 
   async getPair(
