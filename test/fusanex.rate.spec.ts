@@ -1,51 +1,106 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createFusanex } from '../adapter/in/createFusanex';
 import type { NormalizedFiatFxRates } from '../domain/fiat-fx';
+import type { FxResult, FxSuccess } from '../domain/fx-result';
 
-beforeEach(() => {
-  vi.restoreAllMocks();
-});
+function assertSuccess(result: FxResult): FxSuccess {
+  expect(result.ok).toBe(true);
+  if (!result.ok) {
+    throw new Error(`Expected ok=true but got failure: ${JSON.stringify(result.error)}`);
+  }
+  return result;
+}
 
 describe('FusanexService.rate (Universal Router)', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
 
-  it('Priority 1: Uses crypto direct market (USDT/KRW)', async () => {
-    // Setup: Direct crypto market exists
-    const mockFetch = vi.fn().mockImplementation(async (url: string) => {
-      if (url.includes('upbit')) return { json: async () => [{ trade_price: 1300 }] };
-      return { json: async () => [] };
+  it('Priority 1: uses crypto direct market (USDT/KRW) when available', async () => {
+    const mockFetch = vi.fn(async (url: string) => {
+      // Upbit USDT/KRW spot
+      if (url.includes('api.upbit.com') && url.includes('markets=KRW-USDT')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => [{ trade_price: 1300 }],
+        };
+      }
+
+      // Anything else: no usable markets
+      return {
+        ok: true,
+        status: 200,
+        json: async () => [],
+      };
     });
     vi.stubGlobal('fetch', mockFetch);
 
     const fx = createFusanex();
-    const result = await fx.rate('USDT', 'KRW');
+    const result: FxResult = await fx.rate('USDT', 'KRW');
 
-    expect(result).toBe(1300);
+    const ok = assertSuccess(result);
+    expect(ok.rate).toBe(1300);
+    expect(ok.path.hops).toHaveLength(1);
+    expect(ok.path.hops[0]).toMatchObject({
+      providerLabel: 'Upbit',
+      marketKind: 'CRYPTO',
+    });
   });
 
-  it('Priority 2: Uses Fiat FX when crypto fails (USD/KRW)', async () => {
+  it('Priority 2: falls back to Fiat FX when crypto fails (USD/KRW)', async () => {
     const normalizedFiat: NormalizedFiatFxRates = {
       base: 'KRW',
       quotes: {
-        USD: 1300, KRW: 1,
-        JPY: 0, EUR: 0, CNY: 0, VND: 0, USDT: 0, USDC: 0
+        USD: 1300,
+        KRW: 1,
+        JPY: 0,
+        EUR: 0,
+        CNY: 0,
+        VND: 0,
+        USDT: 0,
+        USDC: 0,
+        BTC: 0,
+        ETH: 0,
+        XRP: 0,
+        BNB: 0,
+        SOL: 0,
       },
     };
 
-    // Setup: Crypto fails (returns empty), Fiat succeeds
-    const mockFetch = vi.fn().mockImplementation(async (url: string) => {
-      // 1. Upbit returns empty (simulating no pair supported)
-      if (url.includes('upbit')) {
-        return { json: async () => [] };
+    const mockFetch = vi.fn(async (url: string) => {
+      // 1. Upbit: no crypto market available
+      if (url.includes('api.upbit.com')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => [],
+        };
       }
-      // 2. Binance returns error/empty
-      if (url.includes('binance')) {
-        return { json: async () => ({}) };
+
+      // 2. Binance: no usable quote
+      if (url.includes('api.binance.com')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({}),
+        };
       }
-      // 3. Fiat endpoint returns data
+
+      // 3. Fiat endpoint
       if (url.includes('fiat.example')) {
-        return { json: async () => normalizedFiat };
+        return {
+          ok: true,
+          status: 200,
+          json: async () => normalizedFiat,
+        };
       }
-      return { json: async () => null };
+
+      return {
+        ok: true,
+        status: 200,
+        json: async () => null,
+      };
     });
     vi.stubGlobal('fetch', mockFetch);
 
@@ -56,38 +111,80 @@ describe('FusanexService.rate (Universal Router)', () => {
       },
     });
 
-    const result = await fx.rate('USD', 'KRW');
-    expect(result).toBe(1300);
+    const result: FxResult = await fx.rate('USD', 'KRW');
+
+    const ok = assertSuccess(result);
+    expect(ok.rate).toBe(1300);
+    expect(ok.path.hops).toHaveLength(1);
+    expect(ok.path.hops[0]).toMatchObject({
+      providerId: 'legal-fiat',
+      marketKind: 'FIAT',
+      marketSymbol: 'USD/KRW',
+    });
   });
 
-  it('Priority 3: Bridges Crypto <-> Fiat via Bridge Asset (USDT -> KRW -> JPY)', async () => {
+  it('Priority 3: bridges Crypto <-> Fiat via KRW (USDT -> KRW -> JPY)', async () => {
+    // Legal FX: base KRW, 1 JPY = 10 KRW
     const normalizedFiat: NormalizedFiatFxRates = {
       base: 'KRW',
       quotes: {
-        JPY: 10, KRW: 1, // 1 JPY = 10 KRW? (Normalized: Base per 1 Code. So 1 JPY = 10 KRW)
-        USD: 0, EUR: 0, CNY: 0, VND: 0, USDT: 0, USDC: 0
+        JPY: 10, // 1 JPY = 10 KRW
+        KRW: 1,
+        USD: 0,
+        EUR: 0,
+        CNY: 0,
+        VND: 0,
+        USDT: 0,
+        USDC: 0,
+        BTC: 0,
+        ETH: 0,
+        XRP: 0,
+        BNB: 0,
+        SOL: 0,
       },
     };
 
-    // Setup: Specific responses for the bridge path
-    const mockFetch = vi.fn().mockImplementation(async (url: string) => {
-      // Binance: BTC/USDT exists (used for checking crypto cross feasibility, though not used in final bridge calculation here)
-      if (url.includes('symbol=BTCUSDT')) {
-        return { json: async () => ({ price: '50000' }) };
+    const mockFetch = vi.fn(async (url: string) => {
+      // 1. Upbit crypto KRW-USDT
+      if (url.includes('api.upbit.com')) {
+        if (url.includes('markets=KRW-USDT')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => [{ trade_price: 1300 }],
+          };
+        }
+        // any other KRW-* market not used in this scenario
+        return {
+          ok: true,
+          status: 200,
+          json: async () => [],
+        };
       }
-      // Upbit: USDT/KRW exists (The Crypto Leg)
-      if (url.includes('markets=KRW-USDT')) {
-        return { json: async () => [{ trade_price: 1300 }] };
-      }
-      // Any other crypto call fails
-      if (url.includes('upbit') || url.includes('binance')) {
-        return { json: async () => [] };
-      }
-      // Fiat: Returns valid rates (The Fiat Leg)
+
+      // 2. Fiat FX endpoint
       if (url.includes('fiat.example')) {
-        return { json: async () => normalizedFiat };
+        return {
+          ok: true,
+          status: 200,
+          json: async () => normalizedFiat,
+        };
       }
-      return { json: async () => null };
+
+      // 3. Binance: unused here
+      if (url.includes('api.binance.com')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({}),
+        };
+      }
+
+      return {
+        ok: true,
+        status: 200,
+        json: async () => null,
+      };
     });
     vi.stubGlobal('fetch', mockFetch);
 
@@ -98,16 +195,25 @@ describe('FusanexService.rate (Universal Router)', () => {
       },
     });
 
-    const result = await fx.rate('USDT', 'JPY');
+    const result: FxResult = await fx.rate('USDT', 'JPY');
 
-    // Path:
-    // 1. cryptoRate(USDT, JPY) -> Fails (No direct, No cross)
-    // 2. fiatRate(USDT, JPY) -> Fails (USDT not in fiat quotes)
-    // 3. Bridge via KRW:
-    //    Leg 1: trySingleLeg(USDT, KRW) -> Crypto Direct (Upbit) -> 1300
-    //    Leg 2: trySingleLeg(KRW, JPY) -> Fiat (Cached) -> 1 JPY = 10 KRW -> Rate = 0.1
-    // Result: 1300 * 0.1 = 130
+    const ok = assertSuccess(result);
 
-    expect(result).toBeCloseTo(130);
+    // Bridge via KRW:
+    //  Leg1: USDT -> KRW (Upbit) @ 1300
+    //  Leg2: KRW -> JPY (Legal FX) @ 0.1 (since 1 JPY = 10 KRW)
+    //  Total: 1300 * 0.1 = 130
+    expect(ok.rate).toBeCloseTo(130, 8);
+    expect(ok.path.hops).toHaveLength(2);
+    expect(ok.path.hops[0]).toMatchObject({
+      from: 'USDT',
+      to: 'KRW',
+      marketKind: 'CRYPTO',
+    });
+    expect(ok.path.hops[1]).toMatchObject({
+      from: 'KRW',
+      to: 'JPY',
+      marketKind: 'FIAT',
+    });
   });
 });
