@@ -6,12 +6,8 @@ import type {
   FiatFxTransform,
 } from '../../domain/fiat-fx';
 import { FxProviderError } from '../../domain/fx-result';
+import { createSmartFetch, type FetchLike, parseRetryAfterMs } from '../../util/http';
 
-/**
- * Example Stockplus FOREX endpoint.
- * This is NOT an official public API; users should opt-in explicitly if they
- * want to rely on it.
- */
 export const STOCKPLUS_FIAT_FX_ENDPOINT =
   'https://mweb-api.stockplus.com/api/assets.json?ids=' +
   [
@@ -59,17 +55,11 @@ export const STOCKPLUS_FIAT_FX_ENDPOINT =
     'FOREX-KRWTRY',
   ].join('%2C');
 
-/**
- * Default transform for the Stockplus endpoint.
- */
 export const stockplusFiatFxTransform: FiatFxTransform = (
   raw: unknown,
 ): NormalizedFiatFxRates => {
   const BASE: CurrencyCode = 'KRW';
-  const QUOTES: Record<CurrencyCode, number> = {} as Record<
-    CurrencyCode,
-    number
-  >;
+  const QUOTES: Record<CurrencyCode, number> = {} as Record<CurrencyCode, number>;
 
   if (!raw || typeof raw !== 'object') {
     return { base: BASE, quotes: QUOTES };
@@ -89,13 +79,7 @@ export const stockplusFiatFxTransform: FiatFxTransform = (
 
     if (!code || typeof basePrice !== 'number') continue;
 
-    // Stockplus: basePrice is "KRW per `currencyUnit` of code".
-    // Fusanex wants: "KRW per 1 code".
-    const unit =
-      typeof currencyUnit === 'number' && currencyUnit > 0
-        ? currencyUnit
-        : 1;
-
+    const unit = typeof currencyUnit === 'number' && currencyUnit > 0 ? currencyUnit : 1;
     QUOTES[code] = basePrice / unit;
   }
 
@@ -106,20 +90,31 @@ export interface LegalFiatFxAdapterConfig {
   endpoint: string;
   transform: FiatFxTransform;
   ttlMs?: number;
+  fetchImpl?: FetchLike;
 }
 
-/**
- * LegalFiatFxMarketAdapter:
- *
- * Used ONLY by fiatRate(), not by crypto methods.
- */
+const DEFAULT_LEGAL_FIAT_FETCH: FetchLike = createSmartFetch(fetch, {
+  key: 'legal-fiat',
+  // Unknown provider policy → very conservative pacing (also has TTL cache).
+  rateLimit: { minTimeMs: 300 },
+  retry: {
+    maxRetries: 3,
+    baseBackoffMs: 500,
+    maxBackoffMs: 10_000,
+    retryOnStatuses: [429, 500, 502, 503, 504],
+  },
+});
+
+
 export class LegalFiatFxMarketAdapter implements MarketPort {
   private cache: NormalizedFiatFxRates | null = null;
   private lastFetchedAt = 0;
   private readonly ttlMs: number;
+  private readonly fetchImpl: FetchLike;
 
   constructor(private readonly config: LegalFiatFxAdapterConfig) {
     this.ttlMs = config.ttlMs ?? 60_000;
+    this.fetchImpl = config.fetchImpl ?? DEFAULT_LEGAL_FIAT_FETCH;
   }
 
   private async loadRates(): Promise<NormalizedFiatFxRates> {
@@ -132,15 +127,11 @@ export class LegalFiatFxMarketAdapter implements MarketPort {
     const url = this.config.endpoint;
 
     try {
-      const res = await fetch(url).catch((e) => {
+      const res = await this.fetchImpl(url).catch((e) => {
         throw new FxProviderError(
           'NETWORK_ERROR',
           'Network error while fetching legal FX rates',
-          {
-            providerId: 'legal-fiat',
-            url,
-            error: String(e),
-          },
+          { providerId: 'legal-fiat', url, error: String(e) },
         );
       });
 
@@ -153,6 +144,7 @@ export class LegalFiatFxMarketAdapter implements MarketPort {
               providerId: 'legal-fiat',
               url,
               status: res.status,
+              retryAfterMs: parseRetryAfterMs(res),
             },
           );
         }
@@ -160,11 +152,7 @@ export class LegalFiatFxMarketAdapter implements MarketPort {
         throw new FxProviderError(
           'PROVIDER_ERROR',
           `Legal FX provider HTTP error ${res.status}`,
-          {
-            providerId: 'legal-fiat',
-            url,
-            status: res.status,
-          },
+          { providerId: 'legal-fiat', url, status: res.status },
         );
       }
 
@@ -177,11 +165,7 @@ export class LegalFiatFxMarketAdapter implements MarketPort {
         throw new FxProviderError(
           'PROVIDER_ERROR',
           'Error while transforming legal FX rates',
-          {
-            providerId: 'legal-fiat',
-            url,
-            error: String(e),
-          },
+          { providerId: 'legal-fiat', url, error: String(e) },
         );
       }
 
@@ -190,30 +174,18 @@ export class LegalFiatFxMarketAdapter implements MarketPort {
 
       return normalized;
     } catch (e) {
-      if (e instanceof FxProviderError) {
-        throw e;
-      }
+      if (e instanceof FxProviderError) throw e;
 
       throw new FxProviderError(
         'PROVIDER_ERROR',
         'Unexpected error while loading legal FX rates',
-        {
-          providerId: 'legal-fiat',
-          url,
-          error: String(e),
-        },
+        { providerId: 'legal-fiat', url, error: String(e) },
       );
     }
   }
 
-  async getPair(
-    from: CurrencyCode,
-    to: CurrencyCode,
-  ): Promise<ExchangeRate | null> {
-    // Caller must only pass fiat codes; base assets not supported here.
-    if (typeof from !== 'string' || typeof to !== 'string') {
-      return null;
-    }
+  async getPair(from: CurrencyCode, to: CurrencyCode): Promise<ExchangeRate | null> {
+    if (typeof from !== 'string' || typeof to !== 'string') return null;
 
     const FROM = from as CurrencyCode;
     const TO = to as CurrencyCode;
@@ -238,7 +210,6 @@ export class LegalFiatFxMarketAdapter implements MarketPort {
     const Q_FROM = quotes[FROM];
     const Q_TO = quotes[TO];
 
-    // FROM === BASE, TO in quotes
     if (FROM === BASE && Q_TO != null) {
       const PRICE = 1 / Q_TO;
       if (!Number.isFinite(PRICE) || PRICE <= 0) return null;
@@ -256,7 +227,6 @@ export class LegalFiatFxMarketAdapter implements MarketPort {
       };
     }
 
-    // TO === BASE, FROM in quotes
     if (TO === BASE && Q_FROM != null) {
       const PRICE = Q_FROM;
       if (!Number.isFinite(PRICE) || PRICE <= 0) return null;
@@ -274,7 +244,6 @@ export class LegalFiatFxMarketAdapter implements MarketPort {
       };
     }
 
-    // Both FROM and TO are not BASE, but both exist in quotes:
     if (Q_FROM != null && Q_TO != null) {
       const PRICE = Q_FROM / Q_TO;
       if (!Number.isFinite(PRICE) || PRICE <= 0) return null;
@@ -292,7 +261,6 @@ export class LegalFiatFxMarketAdapter implements MarketPort {
       };
     }
 
-    // No usable quote for this pair
     return null;
   }
 }

@@ -11,6 +11,7 @@ import {
   STOCKPLUS_FIAT_FX_ENDPOINT,
   stockplusFiatFxTransform,
 } from '../out/LegalFiatFxMarketAdapter';
+import type { FetchLike, RateLimitOptions, RetryOptions } from '../../util/http';
 
 const DEFAULT_UPBIT_TICKER_ENDPOINT = 'https://api.upbit.com/v1/ticker';
 const DEFAULT_BINANCE_TICKER_ENDPOINT = 'https://api.binance.com/api/v3/ticker/price';
@@ -26,12 +27,58 @@ export interface FiatFxConfig {
   ttlMs?: number;
 }
 
+/**
+ * Optional per-exchange fetch overrides.
+ * If omitted, each adapter uses its own default (rate-limited + retrying) fetch.
+ */
+export interface FetchImplsConfig {
+  upbit?: FetchLike;
+  binance?: FetchLike;
+  legalFiat?: FetchLike;
+}
+
+/**
+ * Optional per-exchange rate limit overrides.
+ * Only used if you also provide fetchImpls? No — adapters have defaults already.
+ * This is here in case you later want to build fetches here centrally.
+ */
+export interface RateLimitsConfig {
+  upbit?: RateLimitOptions;
+  binance?: RateLimitOptions;
+  legalFiat?: RateLimitOptions;
+}
+
+/**
+ * Optional global retry override (applies at service-level RATE_LIMITED retry).
+ */
+export interface ServiceRetryConfig {
+  maxRetries?: number;     // default: 3
+  baseBackoffMs?: number;  // default: 400
+  maxBackoffMs?: number;   // default: 8000
+}
+
 export interface FusanexConfig {
   baseAsset?: CurrencyCode;
   upbitApiUrl?: string;
   binanceApiUrl?: string;
   providers?: ProviderMap;
   fiatFx?: FiatFxConfig;
+
+  /**
+   * If provided, adapters will use these instead of their own defaults.
+   */
+  fetchImpls?: FetchImplsConfig;
+
+  /**
+   * Service-level retry policy for RATE_LIMITED (adapter errors).
+   */
+  serviceRetry?: ServiceRetryConfig;
+
+  /**
+   * Reserved for future: you can remove this now if you don't want it yet.
+   * (Adapters already set their own defaults.)
+   */
+  rateLimits?: RateLimitsConfig;
 }
 
 function buildCryptoMarkets(config: FusanexConfig): MarketPort[] {
@@ -46,7 +93,7 @@ function buildCryptoMarkets(config: FusanexConfig): MarketPort[] {
     switch (KRW_PROVIDER) {
       case 'Upbit': {
         const UPBIT_API_URL = config.upbitApiUrl ?? DEFAULT_UPBIT_TICKER_ENDPOINT;
-        markets.push(new UpbitKRWMarketAdapter(UPBIT_API_URL));
+        markets.push(new UpbitKRWMarketAdapter(UPBIT_API_URL, config.fetchImpls?.upbit));
         break;
       }
       case 'Bithumb': {
@@ -64,7 +111,7 @@ function buildCryptoMarkets(config: FusanexConfig): MarketPort[] {
     switch (USD_PROVIDER) {
       case 'Binance': {
         const BINANCE_API_URL = config.binanceApiUrl ?? DEFAULT_BINANCE_TICKER_ENDPOINT;
-        markets.push(new BinanceUSDLikeMarketAdapter(BINANCE_API_URL));
+        markets.push(new BinanceUSDLikeMarketAdapter(BINANCE_API_URL, config.fetchImpls?.binance));
         break;
       }
       case 'Coinbase': {
@@ -91,7 +138,14 @@ function buildFiatMarkets(config: FusanexConfig): MarketPort[] {
     throw new Error('fiatFx configuration requires both `endpoint` and `transform`.');
   }
 
-  return [new LegalFiatFxMarketAdapter({ endpoint, transform, ttlMs })];
+  return [
+    new LegalFiatFxMarketAdapter({
+      endpoint,
+      transform,
+      ttlMs,
+      fetchImpl: config.fetchImpls?.legalFiat,
+    }),
+  ];
 }
 
 export function createFusanex(config: FusanexConfig = {}): FusanexPort {
@@ -101,5 +155,6 @@ export function createFusanex(config: FusanexConfig = {}): FusanexPort {
 
   return new FusanexService(CRYPTO_MARKETS, FIAT_MARKETS, {
     baseAsset: BASE_ASSET,
+    retry: config.serviceRetry,
   });
 }
