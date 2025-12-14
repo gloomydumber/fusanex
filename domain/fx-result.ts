@@ -10,6 +10,7 @@ export type FxErrorCode =
   | 'INVALID_ARGUMENT'
   | 'PAIR_NOT_SUPPORTED'
   | 'NO_ROUTE_FOUND'
+  | 'NO_MARKET'
   | 'NETWORK_ERROR'
   | 'PROVIDER_ERROR'
   | 'RATE_LIMITED'
