@@ -1,4 +1,4 @@
-// domain/route.ts
+// domain/route-hop.ts
 import type { CurrencyCode } from './currency';
 import type { MarketKind, ExchangeRate } from './exchange-rate';
 
