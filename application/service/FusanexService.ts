@@ -9,6 +9,7 @@ import {
   type FxErrorCode,
   FxProviderError,
 } from '../../domain/fx-result';
+import { sleep } from '../../util/http';
 
 export interface FusanexServiceRetryConfig {
   maxRetries?: number;     // default 3
@@ -29,10 +30,6 @@ interface LegWithPath {
 interface ResolvedCryptoPair {
   pair: ExchangeRate;         // normalized (from → to)
   providerPair: ExchangeRate; // raw provider pair
-}
-
-function sleep(ms: number) {
-  return new Promise((r) => setTimeout(r, ms));
 }
 
 function makeSuccess(from: CurrencyCode, to: CurrencyCode, rate: number, hops: RouteHop[], asOf: number): FxResult {

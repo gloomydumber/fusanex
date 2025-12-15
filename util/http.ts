@@ -59,7 +59,7 @@ export function parseRetryAfterMs(res: Response): number | undefined {
   return undefined;
 }
 
-function sleep(ms: number) {
+export function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
