@@ -87,7 +87,8 @@ export class UpbitKRWMarketAdapter implements MarketPort {
       return null;
     }
 
-    const price = body[0].trade_price;
+    const price = Number(body[0].trade_price);
+    if (!Number.isFinite(price) || price <= 0) return null;
 
     return {
       base: from,
